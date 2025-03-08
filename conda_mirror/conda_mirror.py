@@ -48,7 +48,7 @@ def _maybe_split_channel(channel):
     ----------
     channel : str
         channel on anaconda, like "conda-forge" or fully qualified channel like
-        "https://conda.anacocnda.org/conda-forge"
+        "https://conda.anaconda.org/conda-forge"
 
     Returns
     -------
