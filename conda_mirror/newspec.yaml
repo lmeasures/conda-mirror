@@ -1,0 +1,15 @@
+blacklist: 
+  - name: "*"
+python_whitelist:
+  - "3.10":
+    - name: "numpy"
+      version: ">=2"
+    - name: "alembic"
+      version: ">=0"
+    - name: "pydantic"
+      version: ">=2"
+  - "3.8":
+    - name: "pydantic"
+      version: ">=2"
+only_most_recent: True
+include_depends: True
