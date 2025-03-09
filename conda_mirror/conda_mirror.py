@@ -1146,7 +1146,7 @@ def main(
         excluded_packages.difference_update(required_packages)
             
     
-    if include_depends:
+    if include_depends: # TODO look into narrowing down the dependency packages to only most recent versions?
         excluded_packages = _restore_required_dependencies(
             packages, excluded_packages, required_packages
         )
