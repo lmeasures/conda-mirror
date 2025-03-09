@@ -16,7 +16,7 @@ import tarfile
 import tempfile
 import time
 from pprint import pformat
-from typing import Any, Callable, Dict, Set, Union
+from typing import Any, Callable, Dict, Optional, Set, Union
 
 import requests
 import yaml
@@ -80,7 +80,12 @@ def _maybe_split_channel(channel):
     return download_template, channel
 
 
-def _match(all_packages: Dict[str, Dict[str, Any]], key_pattern_dict: Dict[str, str]):
+def _match(
+    all_packages: Dict[str, Dict[str, Any]],
+    key_pattern_dict: Dict[str, str],
+    python_version: Optional[str] = None,
+    only_most_recent: bool = False
+):
     """
 
     Parameters
@@ -98,10 +103,12 @@ def _match(all_packages: Dict[str, Dict[str, Any]], key_pattern_dict: Dict[str, 
         (key, pattern) tuples
 
     """
-
     matched = dict()
+    matched_to_python_version = dict()
     matchers: Dict[str, Callable[[Any], bool]] = {}
+    
     for key, pattern in sorted(key_pattern_dict.items()):
+        
         key = key.lower()
         pattern = pattern.lower()
         if key == "version" and VERSION_SPEC_CHARS.search(pattern):
@@ -127,6 +134,22 @@ def _match(all_packages: Dict[str, Dict[str, Any]], key_pattern_dict: Dict[str, 
         ):
             matched.update({pkg_name: pkg_info})
 
+    if python_version:
+        python_version_pattern = f"^.*py{re.sub(VERSION_SPEC_CHARS,'',python_version).replace('.','')}.*$"
+        python_version_matcher = _build_matcher(python_version_pattern)
+        for pkg_name, pkg_info in matched.items():
+            if python_version_matcher(str(pkg_info.get("build","")).lower()): 
+                matched_to_python_version.update({pkg_name: pkg_info})
+        matched = matched_to_python_version
+        
+    only_most_recent_versions = dict()
+    if only_most_recent:
+        for pkg_name, pkg_info in dict(sorted(matched.items(), reverse=True)).items():
+            pkg_info=all_packages[pkg_name]
+            if pkg_name.split("-")[0] not in [name.split("-")[0] for name, info in only_most_recent_versions.items()] and pkg_name.split("-")[-1] not in [name.split("-")[-1] for name, info in only_most_recent_versions.items()]:
+                only_most_recent_versions.update({pkg_name: pkg_info})
+        matched = only_most_recent_versions
+            
     return matched
 
 
@@ -288,6 +311,12 @@ def _make_arg_parser():
         "--include-depends",
         action="store_true",
         help=("Include packages matching any dependencies of packages in whitelist."),
+    )
+    ap.add_argument(
+        "-m",
+        "--only-most-recent",
+        action="store_true",
+        help=("Only return the most recent versions of relevant packages in whitelist."),
     )
     ap.add_argument(
         "-v",
@@ -473,6 +502,7 @@ def _parse_and_format_args():
                 setattr(args, a.dest, config_dict.get(a.dest))
 
     blacklist = config_dict.get("blacklist")
+    python_whitelist = config_dict.get("python_whitelist")
     whitelist = config_dict.get("whitelist")
 
     for required in ("target_directory", "platform", "upstream_channel"):
@@ -508,8 +538,10 @@ def _parse_and_format_args():
         "platform": args.platform,
         "num_threads": args.num_threads,
         "blacklist": blacklist,
+        "python_whitelist": python_whitelist,
         "whitelist": whitelist,
         "include_depends": args.include_depends,
+        "only_most_recent": args.only_most_recent,
         "dry_run": args.dry_run,
         "no_validate_target": args.no_validate_target,
         "minimum_free_space": args.minimum_free_space,
@@ -923,7 +955,9 @@ def main(
     platform,
     blacklist=None,
     whitelist=None,
+    python_whitelist=None,
     include_depends=False,
+    only_most_recent=False,
     num_threads=1,
     dry_run=False,
     no_validate_target=False,
@@ -961,12 +995,21 @@ def main(
         keys in the repodata['packages'] dicts and glob is a thing to match
         on.  Note that all comparisons will be laundered through lowercasing.
     whitelist : iterable of tuples, optional
-        The values of blacklist should be (key, glob) where key is one of the
+        The values of whitelist should be (key, glob) where key is one of the
         keys in the repodata['packages'] dicts and glob is a thing to match
         on.  Note that all comparisons will be laundered through lowercasing.
+    python_whitelist : iterable of tuples, optional
+        The values of this should be (py_key, (key, glob)) where py_key is 
+        a python_version matcher (formatted such as >=3.12 or similar), key
+        is one of the keys in the repodata['[packages'] dics and glob is a
+        thing to match on. Note that all comparisons will be laundered 
+        through lowercasing.
     include_depends: bool
         If true, then include packages matching dependencies of whitelisted
         packages as well.
+    only_most_recent: bool
+        If true, only the most recent version a package (and the most recent 
+        compatable version of it's dependencies) will be retrieved.
     num_threads : int, optional
         Number of threads to be used for concurrent validation.  Defaults to
         `num_threads=1` for non-concurrent mode.  To use all available cores,
@@ -1034,6 +1077,7 @@ def main(
      'version': '8.5.18'}
     """
     logger.debug(f"Local values in main: {pformat(locals())}")
+    # TODO update the steps below to new lifecycle
     # Steps:
     # 1. figure out blacklisted packages
     # 2. un-blacklist packages that are actually whitelisted
@@ -1079,16 +1123,34 @@ def main(
 
     # 3. un-blacklist packages that are actually whitelisted
     # match whitelist on blacklist
+    if python_whitelist:
+        logger.debug("by-python-version config")
+        for wlist in python_whitelist:
+            wlist = dict(wlist)
+            for python_version, whitelist_values in wlist.items():
+                for val in whitelist_values:
+                    matched_packages = list(_match(
+                        packages,
+                        val,
+                        python_version,
+                        only_most_recent
+                    ))
+                    required_packages.update(matched_packages)
+                excluded_packages.difference_update(required_packages)
     if whitelist:
+        logger.debug("standard config")
         for wlist in whitelist:
-            matched_packages = list(_match(packages, wlist))
+            wlist = dict(wlist)
+            matched_packages = list(_match(packages, wlist, python_version, only_most_recent))
             required_packages.update(matched_packages)
         excluded_packages.difference_update(required_packages)
-
+            
+    
     if include_depends:
         excluded_packages = _restore_required_dependencies(
             packages, excluded_packages, required_packages
         )
+
 
     # make final mirror list of not-blacklist + whitelist
     summary["blacklisted"].update(excluded_packages)
