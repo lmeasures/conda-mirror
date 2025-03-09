@@ -477,7 +477,7 @@ def _parse_and_format_args():
 
     for required in ("target_directory", "platform", "upstream_channel"):
         if not getattr(args, required):
-            raise ValueError("Missing command line argument: %s", required)
+            raise ValueError( f"Missing command line argument: '--{required.replace('_','-')} {type(required)}'" )
 
     if args.pdb:
         # set the pdb_hook as the except hook for all exceptions
