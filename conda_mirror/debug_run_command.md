@@ -1,0 +1,1 @@
+python ./conda_mirror/conda_mirror.py --dry-run --target-directory "C:\users\leem\desktop\aylmao" --platform "win-64" --config "./conda_mirror/newspec-single.yaml" --upstream-channel conda-forge > ./conda_mirror/output.log

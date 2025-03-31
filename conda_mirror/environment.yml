@@ -1,0 +1,5 @@
+name: dingle5
+channels:
+  - conda-forge
+dependencies:
+  - numpy=2.2.4=py310h4987827_0

@@ -196,6 +196,7 @@ def _restore_required_dependencies(
     all_packages: Dict[str, Dict[str, Any]],
     excluded: Set[str],
     required: Set[str],
+    only_most_recent: bool
 ) -> Set[str]:
     """Recursively removes dependencies of required packages from excluded packages.
 
@@ -227,17 +228,42 @@ def _restore_required_dependencies(
     final_excluded: Set[str] = set(excluded)
 
     while len(final_excluded) > 0 and len(cur_required) > 0:
+        print("STAGE",cur_required)
         required_depend_specs: Dict[str, Set[str]] = {}
 
         # collate version specs of dependencies package by package name
+        
+        # for each currently required package-name
         for req in cur_required:
+            # get the full info for that package-name
             info = all_packages.get(req, {})
+            print("all depends for", req)
+            print(info.get("depends"))
+            # for each dependency for the currently marked-as-required package
             for dep in info.get("depends", ()):
+                # something here to filter info.get to specific python version(s) and most up-to-date dependencies
                 try:
                     pkg_name, version_spec = dep.split(maxsplit=1)
+                    if only_most_recent:
+                        print(version_spec)
+                        version_spec = version_spec.split(",")
+                        print(version_spec)
+                        version_spec = version_spec[1] if len(version_spec) > 1 else version_spec[0]
+                        print(version_spec)
+                        version_spec = version_spec.replace("=","").replace("<","").replace(">","")
+                        print(version_spec)
+                        version_spec = re.search(r"(\d+(\.\d+)*)", version_spec).group()
+                        print(version_spec)
+                        version_spec = version_spec
+                        print(version_spec)
+                        # TODO 31032025 still haivng issues getting the version_spec to be directly matched to a version of a given package,
+                        # even though the version_spec number comes directly from the registry of available packages..
                 except ValueError:
                     pkg_name, version_spec = dep, ""
+                print("already_required",already_required)
+                print(pkg_name, "already in required", pkg_name in already_required)
                 if pkg_name not in already_required:
+                    print("adding",pkg_name,version_spec)
                     required_depend_specs.setdefault(pkg_name, set()).add(version_spec)
 
         cur_required.clear()
@@ -246,8 +272,10 @@ def _restore_required_dependencies(
             info = all_packages.get(k, {})
             pkg_name = info.get("name")
             for version_spec in required_depend_specs.get(pkg_name, ()):
+                print("matching for",pkg_name, version_spec)
                 matcher = DependsMatcher(version_spec)
                 if matcher(info):
+                    print("matched",k)
                     final_excluded.remove(k)
                     cur_required.add(k)
                     break
@@ -1148,7 +1176,7 @@ def main(
     
     if include_depends: # TODO look into narrowing down the dependency packages to only most recent versions?
         excluded_packages = _restore_required_dependencies(
-            packages, excluded_packages, required_packages
+            packages, excluded_packages, required_packages, only_most_recent
         )
 
 
